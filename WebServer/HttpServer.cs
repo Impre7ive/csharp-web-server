@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -14,9 +15,34 @@ namespace WebServer
 	{
 		private ManualResetEvent signal;
 		private TcpListener listener;
-		//private List<Task> tasks = new List<Task>();
+		private const string WebFolder = "web";
+		string[] binaryExtensions = { ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".mp4", ".mp3", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".otf", ".ttf", ".woff", ".woff2", ".zip", ".rar" };
+		Dictionary<string, string> MimeTypes = new Dictionary<string, string>()
+        {
+			{ ".pdf", "application/pdf" },
+            { ".css", "text/css" },
+            { ".jpg", "image/jpeg" },
+            { ".jpeg", "image/jpeg" },
+            { ".png", "image/png" },
+            { ".gif", "image/gif" },
+            { ".mp4", "video/mp4" },
+            { ".mp3", "audio/mpeg" },
+            { ".txt", "text/plain" },
+            { ".doc", "application/msword" },
+            { ".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
+            { ".xls", "application/vnd.ms-excel" },
+            { ".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
+            { ".ppt", "application/vnd.ms-powerpoint" },
+            { ".pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation" },
+            { ".csv", "text/csv" },
+            { ".rar", "application/x-rar-compressed" },
+            { ".xml", "application/xml" },
+            { ".json", "application/json" },
+            { ".zip", "application/zip" }
+        };
 
-		public HttpServer(IPAddress ip, int port, ManualResetEvent signal) { 
+		public HttpServer(IPAddress ip, int port, ManualResetEvent signal) 
+		{
 			listener = new TcpListener(ip, port);
 			this.signal = signal;
 		}
@@ -25,11 +51,10 @@ namespace WebServer
 
 			do
 			{
-				Console.WriteLine("Iter");
-				var client = listener.AcceptTcpClient();						
+				var client = listener.AcceptTcpClient();
 				Task.Run(() => HandleHttpsRequest(client));
 				Thread.Sleep(50);
-			} 
+			}
 			while (!signal.WaitOne(0));
 
 			listener.Stop();
@@ -38,64 +63,123 @@ namespace WebServer
 		private int HandleHttpsRequest(TcpClient client)
 		{
 			NetworkStream stream = client.GetStream();
-			var buffer = new byte[1024];
+			var buffer = new byte[1024 * 4];
 			var bytesRead = stream.Read(buffer, 0, buffer.Length);
 			var request = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-			//todo: empty request 
-			var requestParams = Parse(request);
-			var response = getResponse(requestParams, stream);
 
-			sendResponse(stream, response);
+			if (request.Length != 0)
+			{
+				var requestParams = Parse(request);
+				SendResponse(requestParams, stream);
+			}
+
 			client.Close();
 
 			return 0;
 		}
 
-		private void sendResponse(NetworkStream stream, string response)
+		private void SendTextResponse(NetworkStream stream, StringBuilder response)
 		{
-			var responseBuffer = Encoding.UTF8.GetBytes(response);
+			var responseBuffer = Encoding.UTF8.GetBytes(response.ToString());
 			stream.Write(responseBuffer, 0, responseBuffer.Length);
+			stream.Flush();
 		}
 
-		private string getResponse(Dictionary<string, string> requestParams, NetworkStream stream)
+		private void SendBinaryResponse(NetworkStream stream, byte[] binary)
+		{
+			stream.Write(binary, 0, binary.Length);
+			stream.Flush();
+		}
+
+		private StringBuilder SetHTMLResponse(StringBuilder sb, Dictionary<string, string> requestParams, ContentType contentType)
+		{
+			var fileContent = File.ReadAllText("web/" + requestParams["Path"]);
+			sb.Append($"HTTP/1.1 200 OK\r\nContent-Type: {contentType.Mime}\r\n\r\n");
+			sb.Append(fileContent);
+			return sb;
+		}
+
+		private StringBuilder NotFound(StringBuilder sb)
+		{
+			sb.Append("HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\n\r\n");
+			sb.Append("<html><body>404 Not Found</body></html>");
+			return sb;
+		}
+
+		private StringBuilder SetImageRequestHeader(StringBuilder sb, Dictionary<string, string> requestParams, int fileSize, ContentType contentType)
+		{
+			sb.Append("HTTP/1.1 200 OK\r\n");
+			sb.Append($"Content-Type: {contentType.Mime}\r\n");
+			sb.Append($"Content-Length: {fileSize}\r\n");
+			sb.Append("\r\n");
+			return sb;
+		}
+
+		private void SendResponse(Dictionary<string, string> requestParams, NetworkStream stream)
 		{
 			StringBuilder sb = new StringBuilder();
 
-			if (Directory.Exists("web"))
+			if (!Directory.Exists("web"))
 			{
-				if (File.Exists("web" + requestParams["Path"]))
+				return;
+			}
+			
+			var fileContentType = GetFileContentType(requestParams);
+
+			if (fileContentType != null)
+			{
+				if (fileContentType.IsText)
 				{
-					if (requestParams["Sec-Fetch-Dest"] == "document")
-					{
-						var fileContent = File.ReadAllText("web/" + requestParams["Path"]);
-						sb.Append($"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n");
-						sb.Append(fileContent);
-					}
-					else if (requestParams["Sec-Fetch-Dest"] == "image")
-					{
-						byte[] fileData = File.ReadAllBytes("web/" + requestParams["Path"]);
-
-						sb.Append("HTTP/1.1 200 OK\r\n");
-						sb.Append("Content-Type: image/png\r\n"); 
-						sb.Append($"Content-Length: {fileData.Length}\r\n");
-						sb.Append("\r\n"); // End of headers
-
-						byte[] h = Encoding.ASCII.GetBytes(sb.ToString());
-
-						stream.Write(h, 0, h.Length);
-						stream.Flush();
-						stream.Write(fileData, 0, fileData.Length);
-						stream.Flush();
-					}
+					SetHTMLResponse(sb, requestParams, fileContentType);
+					SendTextResponse(stream, sb);
 				}
 				else
 				{
-					sb.Append("HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\n\r\n");
-					sb.Append("<html><body>404 Not Found</body></html>");
+					byte[] binary = File.ReadAllBytes(WebFolder + requestParams["Path"]);
+					SetImageRequestHeader(sb, requestParams, binary.Length, fileContentType);
+					SendTextResponse(stream, sb);
+					SendBinaryResponse(stream, binary);
 				}
 			}
+			else
+			{
+				NotFound(sb);
+				SendTextResponse(stream, sb);
+			}		
+		}
 
-			return sb.ToString();
+		private ContentType? GetFileContentType(Dictionary<string, string> requestParams)
+		{
+			ContentType? result = null;
+
+			result = new ContentType(); 
+
+			if (IsDocumentHTML(requestParams["Path"]))
+			{
+				result.Path = requestParams["Path"].IndexOf("html") == -1 ? requestParams["Path"] + ".html" : requestParams["Path"];
+				result.Extension = ".html";
+				result.IsText = true;
+				result.Mime = MimeTypes.ContainsKey(".html") == true ? MimeTypes[".html"] : "text/html";
+			}
+			else
+			{
+				result.Path = requestParams["Path"];
+				result.Extension = requestParams["Path"].Substring(requestParams["Path"].IndexOf('.'));
+				result.IsText = binaryExtensions.Contains(result.Extension) == false ? true : false;
+				result.Mime = MimeTypes.ContainsKey(result.Extension) == true ? MimeTypes[result.Extension] : "Unsupported mime-type";
+			}
+
+			if (!File.Exists(WebFolder + requestParams["Path"]))
+			{
+				return null;
+			}
+
+			return result;
+		}
+
+		private bool IsDocumentHTML(string path)
+		{
+			return path.IndexOf("html") != -1 || path.IndexOf('.') == -1 ? true : false;
 		}
 
 		private Dictionary<string, string> Parse(string request)
