@@ -7,12 +7,13 @@ namespace WebServer
 		private static ManualResetEvent stopSignal = new ManualResetEvent(false);
 		private static IPAddress ip = IPAddress.Any;
 		private static int httpPort  = 80;
+		private static string WebFolder = "web";
 
 		static void Main(string[] args)
 		{
 			WelcomeMessage();
 
-			var httpServer = new HttpServer(ip, httpPort, stopSignal);
+			var httpServer = new HttpServer(ip, httpPort, stopSignal, WebFolder);
 			var httpHandlerThread = new Thread(new ThreadStart(httpServer.Listen));
 			httpHandlerThread.Start();
 
