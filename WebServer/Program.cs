@@ -2,18 +2,19 @@
 
 namespace WebServer
 {
-	internal class Program
+	public class Program
 	{
-		private static ManualResetEvent stopSignal = new ManualResetEvent(false);
-		private static IPAddress ip = IPAddress.Any;
-		private static int httpPort  = 80;
-		private static string WebFolder = "web";
+		private static readonly ManualResetEvent stopSignal = new ManualResetEvent(false);
+		private static readonly IPAddress ip = IPAddress.Any;
+		private static readonly int httpPort  = 80;
+		private static readonly string WebFolder = "web";
 
-		static void Main(string[] args)
+		static void Main()
 		{
-			WelcomeMessage();
+			var logger = new ConsoleInformer();
+			logger.WelcomeMessage();
 
-			var httpServer = new HttpServer(ip, httpPort, stopSignal, WebFolder);
+			var httpServer = new HttpServer(ip, httpPort, stopSignal, WebFolder, logger);
 			var httpHandlerThread = new Thread(new ThreadStart(httpServer.Listen));
 			httpHandlerThread.Start();
 
@@ -26,12 +27,6 @@ namespace WebServer
 
 			stopSignal.Set();
 			httpHandlerThread.Join();
-		}
-
-		private static void WelcomeMessage()
-		{
-			Console.WriteLine("Welcome to C# Web Server.");
-			Console.WriteLine("Press Q to stop server...");
 		}
 	}
 }
