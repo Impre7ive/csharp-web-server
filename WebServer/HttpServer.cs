@@ -31,13 +31,13 @@ namespace WebServer
 			logger.ShowMessage($"Found {parser.MimeTypes.Count} supported types - {string.Join(", ", parser.MimeTypes.Keys.Select(k => k.ToString()))}");
 		}
 
-		public void Listen() {
+		public async Task Listen() {
 			listener.Start();
 
 			do
 			{
-				var client = listener.AcceptTcpClient();
-				Task.Run(() => HandleHttpRequestAsync(client));
+				var client = await listener.AcceptTcpClientAsync();
+				_ = Task.Run(async () => await HandleHttpRequestAsync(client));
 				Thread.Sleep(50);
 			}
 			while (!signal.WaitOne(0));

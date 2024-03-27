@@ -15,7 +15,7 @@ namespace WebServer
 			logger.WelcomeMessage();
 
 			var httpServer = new HttpServer(ip, httpPort, stopSignal, WebFolder, logger);
-			var httpHandlerThread = new Thread(new ThreadStart(httpServer.Listen));
+			var httpHandlerThread = new Thread(() => httpServer.Listen().GetAwaiter().GetResult());
 			httpHandlerThread.Start();
 
 			ConsoleKey key;
